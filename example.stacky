@@ -1,0 +1,2 @@
+push "hello, world!"
+print

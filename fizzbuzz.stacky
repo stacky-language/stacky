@@ -1,0 +1,49 @@
+start:
+
+; input
+read
+convert int
+store i
+
+; i % 15 == 0
+load i
+push 15
+mod
+push 0
+eq
+br fizz_buzz
+
+; i % 3 == 0
+load i
+push 3
+mod
+push 0
+eq
+br fizz
+
+; i % 5 == 0
+load i
+push 5
+mod
+push 0
+eq
+br buzz
+
+goto other
+
+fizz_buzz:
+    print "fizz buzz"
+    goto start
+
+fizz:
+    print "fizz"
+    goto start
+
+buzz:
+    print "buzz"
+    goto start
+
+other:
+    load i
+    print
+    goto start
