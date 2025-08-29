@@ -1,11 +1,22 @@
-start:
-
-; input
-read
-convert int
+; let i = 0
+push 0
 store i
 
-; i % 15 == 0
+start:
+
+; i++
+load i
+push 1
+add
+store i
+
+; if i == 100 return
+load i
+push 100
+eq
+br end
+
+; if i % 15 == 0
 load i
 push 15
 mod
@@ -13,7 +24,7 @@ push 0
 eq
 br fizz_buzz
 
-; i % 3 == 0
+; if i % 3 == 0
 load i
 push 3
 mod
@@ -21,7 +32,7 @@ push 0
 eq
 br fizz
 
-; i % 5 == 0
+; if i % 5 == 0
 load i
 push 5
 mod
@@ -47,3 +58,5 @@ other:
     load i
     print
     goto start
+
+end:
