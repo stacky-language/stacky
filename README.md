@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="180" src="https://github.com/stacky-language/stacky/blob/main/docs/images/stacky.svg" alt="Stacky logo">
+  <img width="200" src="https://github.com/stacky-language/stacky/blob/main/docs/images/stacky.png" alt="Stacky logo">
 </p>
 
 # Stacky
