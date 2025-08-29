@@ -9,3 +9,4 @@ repository = "https://github.com/nuskey8/ase2ttf"
 include = ["/Cargo.toml", "../LICENSE", "../README.md", "/src/**"]
 
 [dependencies]
+chrono = "0.4"

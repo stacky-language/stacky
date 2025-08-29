@@ -1,5 +1,8 @@
+use chrono::Utc;
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs;
+use std::io::{BufRead, Write, stdin, stdout};
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -112,12 +115,14 @@ impl Display for Position {
 pub enum ErrorKind {
     InvalidArgument(String),
     UnknownCommand(String),
+    StackOverflow,
     StackUnderflow,
+    Timeout,
     VariableNotFound(String),
     LabelNotFound(String),
     Io(std::io::Error),
     AssertionFailed(String),
-    RuntimeError(String),
+    CustomError(String),
     Exit(i64),
 }
 
@@ -126,13 +131,15 @@ impl Display for ErrorKind {
         match self {
             ErrorKind::InvalidArgument(cmd) => write!(f, "{}", cmd),
             ErrorKind::UnknownCommand(cmd) => write!(f, "unknown command: {}", cmd),
-            ErrorKind::StackUnderflow => write!(f, "stack underflow"),
+            ErrorKind::StackUnderflow => write!(f, "stack is empty"),
             ErrorKind::VariableNotFound(var) => write!(f, "variable `{}` not found", var),
             ErrorKind::LabelNotFound(label) => write!(f, "label `{}` not found", label),
             ErrorKind::Io(err) => write!(f, "io error: {}", err),
             ErrorKind::AssertionFailed(msg) => write!(f, "assertion failed: {}", msg),
-            ErrorKind::RuntimeError(msg) => write!(f, "runtime error: {}", msg),
+            ErrorKind::CustomError(msg) => write!(f, "{}", msg),
             ErrorKind::Exit(code) => write!(f, "exit with code: {}", code),
+            ErrorKind::StackOverflow => write!(f, "stack overflow"),
+            ErrorKind::Timeout => write!(f, "session timeout"),
         }
     }
 }
@@ -1526,7 +1533,8 @@ impl Script {
                                 push(OpCode::Exit);
                             }
                             None => {
-                                let col = without_comment.find(arg).map(|p| p + 1).unwrap_or(cmd_col);
+                                let col =
+                                    without_comment.find(arg).map(|p| p + 1).unwrap_or(cmd_col);
                                 errors.push(Error {
                                     file_name: file_name.to_string(),
                                     kind: ErrorKind::InvalidArgument(
@@ -1591,16 +1599,24 @@ impl Script {
     }
 }
 
-pub struct Interpreter {
+pub struct Interpreter<'a> {
     stack: Vec<Value>,
-    variables: std::collections::HashMap<String, Value>,
+    variables: HashMap<String, Value>,
+    input: Option<Box<dyn BufRead + 'a>>,
+    output: Option<Box<dyn Write + 'a>>,
+    max_stack_size: Option<usize>,
+    max_execution_time: Option<usize>,
 }
 
-impl Interpreter {
+impl<'a> Interpreter<'a> {
     pub fn new() -> Self {
         Interpreter {
             stack: Vec::new(),
-            variables: std::collections::HashMap::new(),
+            variables: HashMap::new(),
+            input: None,
+            output: None,
+            max_execution_time: None,
+            max_stack_size: None,
         }
     }
 
@@ -1608,8 +1624,37 @@ impl Interpreter {
         &self.stack
     }
 
+    pub fn with_stdio(mut self) -> Self {
+        self.input = Some(Box::new(stdin().lock()));
+        self.output = Some(Box::new(stdout()));
+        self
+    }
+
+    pub fn with_input<I: BufRead + 'a>(mut self, input: I) -> Self {
+        self.input = Some(Box::new(input));
+        self
+    }
+
+    pub fn with_output<I: Write + 'a>(mut self, input: I) -> Self {
+        self.output = Some(Box::new(input));
+        self
+    }
+
+    pub fn with_max_execution_time(mut self, time: usize) -> Self {
+        self.max_execution_time = Some(time);
+        self
+    }
+
+    pub fn with_max_stack_size(mut self, size: usize) -> Self {
+        self.max_stack_size = Some(size);
+        self
+    }
+
     pub fn run(&mut self, script: &Script, args: &[&str]) -> Result<(), Error> {
         let mut pc = 0;
+
+        // start time for execution (ms since epoch); we'll check elapsed ms after each opcode
+        let start_ms = Utc::now().timestamp_millis();
 
         // helper to build an Error using a pc -> source location (does not borrow self)
         let make_err = |kind: ErrorKind, pc: usize| -> Error {
@@ -1626,6 +1671,8 @@ impl Interpreter {
         };
 
         while pc < script.program.len() {
+            // record pc for this opcode so we can report errors pointing to the executing op
+            let current_pc = pc;
             let op = &script.program[pc];
             match op {
                 &OpCode::Nop => {
@@ -1830,13 +1877,24 @@ impl Interpreter {
                     pc += 1;
                 }
                 &OpCode::Print => {
+                    if self.output.is_none() {
+                        return Err(make_err(
+                            ErrorKind::CustomError("output is not set".to_string()),
+                            pc,
+                        ));
+                    }
+
                     if let Some(a) = self.stack.pop() {
-                        match a {
-                            Value::String(s) => println!("{}", s),
-                            Value::Int(i) => println!("{}", i),
-                            Value::Float(f) => println!("{}", f),
-                            Value::Bool(b) => println!("{}", b),
-                            Value::Nil => println!("nil"),
+                        let output_line = match a {
+                            Value::String(s) => format!("{}\n", s),
+                            Value::Int(i) => format!("{}\n", i),
+                            Value::Float(f) => format!("{}\n", f),
+                            Value::Bool(b) => format!("{}\n", b),
+                            Value::Nil => "nil\n".to_string(),
+                        };
+                        let o = self.output.as_mut().unwrap();
+                        if let Err(e) = o.write_all(output_line.as_bytes()) {
+                            return Err(make_err(ErrorKind::Io(e), pc));
                         }
                     } else {
                         return Err(make_err(ErrorKind::StackUnderflow, pc));
@@ -1844,8 +1902,16 @@ impl Interpreter {
                     pc += 1;
                 }
                 &OpCode::Read => {
+                    if self.input.is_none() {
+                        return Err(make_err(
+                            ErrorKind::CustomError("input is not set".to_string()),
+                            pc,
+                        ));
+                    }
+
                     let mut input = String::new();
-                    match std::io::stdin().read_line(&mut input) {
+                    let i = self.input.as_mut().unwrap();
+                    match i.read_line(&mut input) {
                         Ok(_) => {
                             let trimmed = input.trim().to_string();
                             self.stack.push(Value::String(trimmed));
@@ -3003,7 +3069,7 @@ impl Interpreter {
                     if let Some(v) = self.stack.pop() {
                         match v {
                             Value::String(s) => {
-                                return Err(make_err(ErrorKind::RuntimeError(s), pc));
+                                return Err(make_err(ErrorKind::CustomError(s), pc));
                             }
                             _ => {
                                 return Err(make_err(
@@ -3039,6 +3105,19 @@ impl Interpreter {
                     } else {
                         return Err(make_err(ErrorKind::StackUnderflow, pc));
                     }
+                }
+            }
+
+            // after each opcode execution check elapsed time (ms) and stack size
+            if let Some(max_execution_time) = self.max_execution_time {
+                if (Utc::now().timestamp_millis() - start_ms) as usize > max_execution_time {
+                    return Err(make_err(ErrorKind::Timeout, current_pc));
+                }
+            }
+
+            if let Some(max_stack_size) = self.max_stack_size {
+                if self.stack.len() > max_stack_size {
+                    return Err(make_err(ErrorKind::StackOverflow, current_pc));
                 }
             }
         }
