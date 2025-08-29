@@ -108,9 +108,125 @@ other:
 end:
 ```
 
-### Documentation
+## Reference
 
-For more detailed documentation, see: https://stacky-language.github.io/
+### Basic Syntax
+
+Stacky parses code line by line. Each line can contain one command or label.
+
+```stacky
+push 1
+push 2
+add
+println
+```
+
+Comments are written with `;`.
+
+```stacky
+; this is comment
+push "comment"
+println
+```
+
+### Value Types
+
+Stacky values ​​have one of the following types:
+
+* nil
+* int
+* float
+* string
+* bool
+
+These values ​​can be pushed onto the stack using the `push` command.
+
+```stacky
+push nil
+push 10
+push 1.2
+push "foo"
+push true
+```
+
+### Variables
+
+The `store`/`load` commands allow you to save values ​​to registers independent of the stack.
+
+```stacky
+; i = 2
+push 2
+store i
+
+; println(i + 3)
+load i
+push 3
+add
+println
+```
+
+### Control Structure
+
+You can transfer program control using labels and the `goto` command. Labels can be defined with `label:`.
+
+```stacky
+goto label
+
+push "unreachable"
+println
+
+label:
+```
+
+You can also use the `br` command to transfer to a label only if the top of the stack is `true`.
+
+```stacky
+; a = 1
+push 1
+store a
+
+; b = 2
+push 2
+store b
+
+; a == b
+load a
+load b
+eq
+
+br then
+goto else
+
+then:
+    println "a is equal to b"
+    goto end
+else:
+    println "a is not equal to b"
+    goto end
+end:
+```
+
+### Inline arguments
+
+Commands pop arguments from the stack by default.
+
+```stacky
+; println "hello"
+push "hello"
+println
+
+; 1 + 2
+push 1
+push 2
+add
+```
+
+If the arguments are constants, you can write them inline.
+
+```stacky
+push "hello"
+add 1 2
+```
 
 ## License
 

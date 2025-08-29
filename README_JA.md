@@ -108,9 +108,125 @@ other:
 end:
 ```
 
-### ドキュメント
+## リファレンス
 
-より詳細なドキュメントは[こちら](https://stacky-language.github.io/)で確認できます。
+### 基本構文
+
+Stackyは行単位でコードを解釈します。各行には1つのコマンドまたはラベルを記述できます。
+
+```stacky
+push 1
+push 2
+add
+println
+```
+
+コメントは`;`で記述します。
+
+```stacky
+; this is comment
+push "comment"
+println
+```
+
+### 値の型
+
+Stackyの値は以下のいずれかの型を持ちます。
+
+* nil
+* int
+* float
+* string
+* bool
+
+これらの値は`push`コマンドでスタックに積むことができます。
+
+```stacky
+push nil
+push 10
+push 1.2
+push "foo"
+push true
+```
+
+### 変数
+
+`store`/`load`コマンドを用いることで、スタックとは独立したレジスタに値を保存することが可能です。
+
+```stacky
+; i = 2
+push 2
+store i
+
+; println(i + 3)
+load i
+push 3
+add
+println
+```
+
+### 制御構文
+
+ラベルと`goto`コマンドを利用することで、プログラムの制御を移動することができます。ラベルは`label:`で定義できます。
+
+```stacky
+goto label
+
+push "unreachable"
+println
+
+label:
+```
+
+また、`br`コマンドを利用することで、スタックのトップが`true`である場合にのみ、ラベルへの移動を実行することができます。
+
+```stacky
+; a = 1
+push 1
+store a
+
+; b = 2
+push 2
+store b
+
+; a == b
+load a
+load b
+eq
+
+br then
+goto else
+
+then:
+    println "a is equal to b"
+    goto end
+else:
+    println "a is not equal to b"
+    goto end
+end:
+```
+
+### インライン引数
+
+コマンドはデフォルトで引数をスタックからポップします。
+
+```stacky
+; println "hello"
+push "hello"
+println
+
+; 1 + 2
+push 1
+push 2
+add
+```
+
+引数が定数である場合、これをインラインで記述することが可能です。
+
+```stacky
+push "hello"
+add 1 2
+```
 
 ## ライセンス
 
