@@ -26,6 +26,18 @@ impl Value {
     }
 }
 
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Nil => write!(f, "nil"),
+            Value::Int(i) => write!(f, "{i}"),
+            Value::Float(d) => write!(f, "{d}"),
+            Value::Bool(b) => write!(f, "{b}"),
+            Value::String(s) => write!(f, "{s}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum OpCode {
     Nop,
@@ -39,6 +51,7 @@ pub enum OpCode {
     Neg,
     Dup,
     Print,
+    Println,
     Read,
     Goto(String),
     Br(String),
@@ -116,7 +129,7 @@ pub enum ErrorKind {
     InvalidArgument(String),
     UnknownCommand(String),
     StackOverflow,
-    StackUnderflow,
+    StackIsEmpty,
     Timeout,
     VariableNotFound(String),
     LabelNotFound(String),
@@ -131,7 +144,7 @@ impl Display for ErrorKind {
         match self {
             ErrorKind::InvalidArgument(cmd) => write!(f, "{}", cmd),
             ErrorKind::UnknownCommand(cmd) => write!(f, "unknown command: {}", cmd),
-            ErrorKind::StackUnderflow => write!(f, "stack is empty"),
+            ErrorKind::StackIsEmpty => write!(f, "stack is empty"),
             ErrorKind::VariableNotFound(var) => write!(f, "variable `{}` not found", var),
             ErrorKind::LabelNotFound(label) => write!(f, "label `{}` not found", label),
             ErrorKind::Io(err) => write!(f, "io error: {}", err),
@@ -386,6 +399,24 @@ impl Script {
                             file_name: file_name.to_string(),
                             kind: ErrorKind::InvalidArgument(
                                 "unexpected argument to `print` (requires a single value)"
+                                    .to_string(),
+                            ),
+                            pos: Position { line: line_no, col },
+                        });
+                    }
+                }
+                "println" => {
+                    if arg.is_empty() {
+                        push(OpCode::Println);
+                    } else if let Some(vals) = parse_inline_values(arg, Some(1)) {
+                        push(OpCode::Push(vals[0].clone()));
+                        push(OpCode::Println);
+                    } else {
+                        let col = without_comment.find(arg).map(|p| p + 1).unwrap_or(cmd_col);
+                        errors.push(Error {
+                            file_name: file_name.to_string(),
+                            kind: ErrorKind::InvalidArgument(
+                                "unexpected argument to `println` (requires a single value)"
                                     .to_string(),
                             ),
                             pos: Position { line: line_no, col },
@@ -1688,7 +1719,7 @@ impl<'a> Interpreter<'a> {
                             self.stack.pop();
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -1725,7 +1756,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -1759,7 +1790,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -1793,7 +1824,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -1827,7 +1858,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -1851,7 +1882,7 @@ impl<'a> Interpreter<'a> {
                             ));
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -1872,7 +1903,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -1885,20 +1916,33 @@ impl<'a> Interpreter<'a> {
                     }
 
                     if let Some(a) = self.stack.pop() {
-                        let output_line = match a {
-                            Value::String(s) => format!("{}\n", s),
-                            Value::Int(i) => format!("{}\n", i),
-                            Value::Float(f) => format!("{}\n", f),
-                            Value::Bool(b) => format!("{}\n", b),
-                            Value::Nil => "nil\n".to_string(),
-                        };
                         let o = self.output.as_mut().unwrap();
-                        if let Err(e) = o.write_all(output_line.as_bytes()) {
+                        if let Err(e) = write!(o, "{a}") {
                             return Err(make_err(ErrorKind::Io(e), pc));
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
+
+                    pc += 1;
+                }
+                &OpCode::Println => {
+                    if self.output.is_none() {
+                        return Err(make_err(
+                            ErrorKind::CustomError("output is not set".to_string()),
+                            pc,
+                        ));
+                    }
+
+                    if let Some(a) = self.stack.pop() {
+                        let o = self.output.as_mut().unwrap();
+                        if let Err(e) = writeln!(o, "{a}") {
+                            return Err(make_err(ErrorKind::Io(e), pc));
+                        }
+                    } else {
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
+                    }
+
                     pc += 1;
                 }
                 &OpCode::Read => {
@@ -1947,7 +1991,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                 }
                 &OpCode::Load(ref var) => {
@@ -1962,7 +2006,7 @@ impl<'a> Interpreter<'a> {
                     if let Some(value) = self.stack.pop() {
                         self.variables.insert(var.clone(), value);
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -1980,7 +2024,7 @@ impl<'a> Interpreter<'a> {
                     if let Some(a) = self.stack.last().cloned() {
                         self.stack.push(a);
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2015,7 +2059,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2050,7 +2094,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2085,7 +2129,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2120,7 +2164,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2131,7 +2175,7 @@ impl<'a> Interpreter<'a> {
                         let result = a == b;
                         self.stack.push(Value::Bool(result));
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2142,7 +2186,7 @@ impl<'a> Interpreter<'a> {
                         let result = a != b;
                         self.stack.push(Value::Bool(result));
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2170,7 +2214,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2198,7 +2242,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2218,7 +2262,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2244,7 +2288,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2268,7 +2312,7 @@ impl<'a> Interpreter<'a> {
                             ));
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2292,7 +2336,7 @@ impl<'a> Interpreter<'a> {
                             ));
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2354,7 +2398,7 @@ impl<'a> Interpreter<'a> {
                             Err(k) => return Err(make_err(k, pc)),
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2380,7 +2424,7 @@ impl<'a> Interpreter<'a> {
                             ));
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2406,7 +2450,7 @@ impl<'a> Interpreter<'a> {
                             ));
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2428,7 +2472,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2450,7 +2494,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2484,7 +2528,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2518,7 +2562,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2538,7 +2582,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2576,7 +2620,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2596,7 +2640,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2616,7 +2660,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2636,7 +2680,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2656,7 +2700,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2675,7 +2719,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2711,7 +2755,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2731,7 +2775,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2751,7 +2795,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2771,7 +2815,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2791,7 +2835,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2811,7 +2855,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2831,7 +2875,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2851,7 +2895,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2871,7 +2915,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2891,7 +2935,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2911,7 +2955,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2931,7 +2975,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2951,7 +2995,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2971,7 +3015,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -2991,7 +3035,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -3027,7 +3071,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -3041,7 +3085,7 @@ impl<'a> Interpreter<'a> {
                                 if let Some(cond) = self.stack.pop() {
                                     (cond, Some(s))
                                 } else {
-                                    return Err(make_err(ErrorKind::StackUnderflow, pc));
+                                    return Err(make_err(ErrorKind::StackIsEmpty, pc));
                                 }
                             }
                             other => (other, None),
@@ -3060,7 +3104,7 @@ impl<'a> Interpreter<'a> {
                             return Err(make_err(ErrorKind::AssertionFailed(msg), pc));
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                     pc += 1;
                 }
@@ -3082,7 +3126,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                 }
                 &OpCode::Exit => {
@@ -3103,7 +3147,7 @@ impl<'a> Interpreter<'a> {
                             }
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackUnderflow, pc));
+                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
                     }
                 }
             }
