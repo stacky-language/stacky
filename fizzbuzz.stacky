@@ -43,20 +43,20 @@ br buzz
 goto other
 
 fizz_buzz:
-    print "fizz buzz"
+    println "fizz buzz"
     goto start
 
 fizz:
-    print "fizz"
+    println "fizz"
     goto start
 
 buzz:
-    print "buzz"
+    println "buzz"
     goto start
 
 other:
     load i
-    print
+    println
     goto start
 
 end:

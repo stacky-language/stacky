@@ -28,7 +28,7 @@ $ cargo install stacky-cli
 ```stacky
 ; hello.stacky
 push "hello, world!"
-print
+println
 ```
 
 Stacky Playgroundの場合はRunボタンを押してコードを実行します。CLIの場合は以下のコマンドを実行します。
@@ -89,20 +89,20 @@ br buzz
 goto other
 
 fizz_buzz:
-    print "fizz buzz"
+    println "fizz buzz"
     goto start
 
 fizz:
-    print "fizz"
+    println "fizz"
     goto start
 
 buzz:
-    print "buzz"
+    println "buzz"
     goto start
 
 other:
     load i
-    print
+    println
     goto start
 
 end:

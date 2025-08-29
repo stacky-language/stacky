@@ -28,7 +28,7 @@ Run the following example:
 ```stacky
 ; hello.stacky
 push "hello, world!"
-print
+println
 ```
 
 In the Stacky Playground, press the Run button to execute the code. From the CLI, run:
@@ -89,20 +89,20 @@ br buzz
 goto other
 
 fizz_buzz:
-    print "fizz buzz"
+    println "fizz buzz"
     goto start
 
 fizz:
-    print "fizz"
+    println "fizz"
     goto start
 
 buzz:
-    print "buzz"
+    println "buzz"
     goto start
 
 other:
     load i
-    print
+    println
     goto start
 
 end:

@@ -1,2 +1,2 @@
 push "hello, world!"
-print
+println
