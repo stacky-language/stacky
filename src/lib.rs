@@ -1921,7 +1921,7 @@ impl<'a> Interpreter<'a> {
                             return Err(make_err(ErrorKind::Io(e), pc));
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
+                        // do nothing
                     }
 
                     pc += 1;
@@ -1934,13 +1934,15 @@ impl<'a> Interpreter<'a> {
                         ));
                     }
 
+                    let o = self.output.as_mut().unwrap();
                     if let Some(a) = self.stack.pop() {
-                        let o = self.output.as_mut().unwrap();
                         if let Err(e) = writeln!(o, "{a}") {
                             return Err(make_err(ErrorKind::Io(e), pc));
                         }
                     } else {
-                        return Err(make_err(ErrorKind::StackIsEmpty, pc));
+                        if let Err(e) = writeln!(o) {
+                            return Err(make_err(ErrorKind::Io(e), pc));
+                        }
                     }
 
                     pc += 1;
