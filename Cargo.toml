@@ -1,12 +1,12 @@
 [package]
 name = "stacky"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Stacky Programming Language"
 authors = ["nuskey"]
-license = "Apache-2.0"
-repository = "https://github.com/nuskey8/ase2ttf"
-include = ["/Cargo.toml", "../LICENSE", "../README.md", "/src/**"]
+license = "MIT"
+repository = "https://github.com/stacky-language/stacky"
+include = ["/Cargo.toml", "./LICENSE", "./README.md", "/src/**"]
 
 [dependencies]
 chrono = "0.4"
